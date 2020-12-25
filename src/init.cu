@@ -86,6 +86,6 @@ void init_constraint( float *constraint )
 {
     constraint[0] = -1.0f;
     constraint[1] = 1.0f;
-    constraint[2] = -0.5f;
-    constraint[3] = 0.5f;
+    constraint[2] = -10.0f;
+    constraint[3] = 10.0f;
 }

@@ -326,14 +326,20 @@ __global__ void Using_Thrust_MCMPC_Pendulum(float x, float th, float dx, float d
             th -= (2 * M_PI);
         while (th < -M_PI)
             th += (2 * M_PI);
-        
+        //printf("id = %d :: u[%d] = %f x = %f th = %f\n", id, t, u[t], x, th);
         qx = x * x * d_matrix[0] + th * th * d_matrix[1] + dx * dx * d_matrix[2] + dth * dth * d_matrix[3] + d_matrix[4] * u[t] * u[t];
         /*qx = x * x * d_matrix[0] + y * y * d_matrix[1] + w * w * d_matrix[2] + d_matrix[3]*u[t]*u[t];*/
         
         if( x <= 0){
             qx += 1 / pow(9.0*(x - d_const[2]),2);
+            if(x < d_const[2]){
+               qx += 10000000;
+            }
         }else{
             qx += 1 / pow(9.0*(d_const[3] - x),2);
+            if(x > d_const[3]){
+               qx += 10000000;
+            }
         }
 
         total_cost += qx;
@@ -348,7 +354,7 @@ __global__ void Using_Thrust_MCMPC_Pendulum(float x, float th, float dx, float d
     }
     float KL_COST, S, lambda;
     // lambda = HORIZON * dim_state;
-    lambda = HORIZON * dim_state / 2;
+    lambda = HORIZON * 20;
     //lambda = 10.0f;
     S = total_cost / lambda;
     KL_COST = exp(-S);

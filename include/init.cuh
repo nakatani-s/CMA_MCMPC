@@ -2,7 +2,7 @@
 initialize all param for dynamical systems and setting of MCMPC
 
 */
-
+#include "params.cuh"
 void init_sys_param(float *get_param);
 void Mat_sys_A(float *a);
 void init_state(float *st);

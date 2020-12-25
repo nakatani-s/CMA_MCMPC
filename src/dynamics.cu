@@ -19,7 +19,7 @@ __host__ __device__ float Cart_type_Pendulum_ddx(float u, float x, float theta, 
 {
     float a[10];
 
-    a[0] = state[3] + powf(state[2], 2) * state[1];		//J+l^2*mp
+        a[0] = state[3] + powf(state[2], 2) * state[1];		//J+l^2*mp
 	a[1] = u - dx * state[4]
 			+ powf(dtheta, 2) * state[2] * state[1] * sinf(theta);//u-dx*myuc+dtheta^2*l*mp*sin
 	a[2] = cosf(theta) * state[2] * state[1];						//cos*l*mp

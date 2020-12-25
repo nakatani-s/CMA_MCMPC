@@ -19,7 +19,7 @@
 #include "include/cuSolverForMCMPC.cuh"
 #include "include/CMAFunctionsForMCMPC.cuh"
 
-#define Linear
+//#define Linear
 
 void printMatrix(int m, int n, float*A, int lda, const char* name)
 {
@@ -58,6 +58,7 @@ int main(int argc, char **argv)
     init_state( state );
     init_constraint( h_constraint );
     init_Weight_matrix( h_matrix );
+    //printf("state[0] = %f, state[1] == %f\n",state[0],state[1]);
     //cudaMemcpyToSymbol(d_param, &params, dim_param * sizeof(float));
     cudaMalloc(&device_param, sizeof(float)*dim_param);
     cudaMalloc(&device_matrix, sizeof(float)*dim_weight_matrix);
@@ -272,7 +273,7 @@ int main(int argc, char **argv)
             //printMatrix(m,1,Dy_host, lda, "Dy");
             before_var = var;
             var = CMA_update_variance( Ps_host, c_sigma, d_sigma, Xi, var);//進化分散を計算
-            printf("before == %f, after == %f", before_var, var);
+            //printf("before == %f, after == %f", before_var, var);
             //rank-u-updateの分散共分散行列(d_A)の計算
             CMA_zeros_matrix<<<HORIZON,HORIZON>>>(d_A);//d_Aを0行列に変換
             cudaDeviceSynchronize();
@@ -307,7 +308,7 @@ int main(int argc, char **argv)
             cudaDeviceSynchronize();
 
             //進化共分散行列の計算
-            CMA_update_covariance_matrix<<<HORIZON,HORIZON>>>(d_hat_Q, d_A, device_diag_eig, 0.01, 0.99); //c1 = 0.2 c_mu = 0.8に対応
+            CMA_update_covariance_matrix<<<HORIZON,HORIZON>>>(d_hat_Q, d_A, device_diag_eig, 0.5, 0.5); //c1 = 0.2 c_mu = 0.8に対応
             cudaDeviceSynchronize();
             tanspose<<<HORIZON,HORIZON>>>(device_cov, d_hat_Q);//対称行列となっているかの判別に使用
             cudaDeviceSynchronize();
@@ -338,13 +339,14 @@ int main(int argc, char **argv)
                 Error[d] = Us_host[d] - opt[d];
                 RSME += powf(Error[d],2);
             }
-            printf("RSME == %f\n", RSME / HORIZON);
+            //printf("RSME == %f\n", RSME / HORIZON);
 #endif
         }
         //printMatrix(m,m,h_hat_Q, lda, "C");
         now_u = Us_host[0];
 #ifdef Pendulum
         // float ddx, ddtheta;
+        printf("TIME = %f Theat = %f  L = %f variance = %f \n", interval * time, state[1],h_dataFromBlocks[0].L, now_u);
         fprintf(fp,"%f %f %f %f %f %f %f\n", interval * time, now_u, state[0], state[1], state[2], state[3], h_dataFromBlocks[0].L );
         Runge_kutta_45_for_Secondary_system(state, now_u, params, interval);
         shift_Input_vec<<<numBlocks,THREAD_PER_BLOCKS>>>(d_Input_vec, Us_device);

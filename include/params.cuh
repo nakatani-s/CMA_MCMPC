@@ -7,7 +7,7 @@ define parameters for MCMPC and Systems
 #ifndef PARAMS_CUH
 #define PARAMS_CUH
 
-#define TIME 1
+#define TIME 1000
 // #define dim_param 10
 
 #define Pendulum
@@ -33,20 +33,23 @@ define parameters for MCMPC and Systems
 #endif
 
 #define interval 0.01
-#define Variavility 2.0
+#define Variavility 1.0
 
-#define Recalc 10
+#define Recalc 100
 #define N_OF_SAMPLES 3000
-#define THREAD_PER_BLOCKS 100
+#define THREAD_PER_BLOCKS 60
 #define HORIZON 100
 
 const int dim_hat_Q = HORIZON * HORIZON;
 
-const int CMA_mu = 100;
-const float c_sigma = 0.21f;
+const int CMA_mu = 10;
+//const float c_sigma = 0.21f;
+const float c_sigma = 0.03f;
 //#define c_sigma 0.21
-const float d_sigma = 5.76f;
-const float Xi = 3.81f;
+//const float d_sigma = 5.76f;
+const float d_sigma = 27.32f;
+//const float Xi = 3.81f;
+const float Xi = 9.98f;
 
 #define USING_THRUST
 

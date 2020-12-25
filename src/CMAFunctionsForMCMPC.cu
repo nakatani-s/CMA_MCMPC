@@ -225,5 +225,11 @@ void CMA_estimate_mean(float *Us_hst, float *Dy_hst, float var)
     for(int t = 0; t < HORIZON; t++)
     {
         Us_hst[t] = Us_hst[t] + var * Dy_hst[t];
+        if(Us_hst[t] < -1.0f){
+           Us_hst[t] = -1.0f;
+        }
+        if(Us_hst[t] > 1.0f){
+           Us_hst[t] = 1.0f;
+        }
     }
 }
