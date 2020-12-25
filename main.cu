@@ -52,17 +52,19 @@ int main(int argc, char **argv)
     fp = fopen(filename1,"w");
 
 
-    float params[dim_param], state[dim_state], /*h_constraint[NUM_CONST],*/ h_matrix[dim_weight_matrix];
-    float *device_param, *device_matrix;
+    float params[dim_param], state[dim_state], h_constraint[NUM_CONST], h_matrix[dim_weight_matrix];
+    float *device_param, *device_matrix, *device_constraint;
     Mat_sys_A( params );
     init_state( state );
-    // init_constraint( h_constraint );
+    init_constraint( h_constraint );
     init_Weight_matrix( h_matrix );
     //cudaMemcpyToSymbol(d_param, &params, dim_param * sizeof(float));
     cudaMalloc(&device_param, sizeof(float)*dim_param);
     cudaMalloc(&device_matrix, sizeof(float)*dim_weight_matrix);
+    cudaMalloc(&device_constraint, sizeof(float) * NUM_CONST);
     cudaMemcpy(device_param, params, sizeof(float)*dim_param, cudaMemcpyHostToDevice);
     cudaMemcpy(device_matrix, h_matrix, sizeof(float)*dim_weight_matrix, cudaMemcpyHostToDevice);
+    cudaMemcpy(device_constraint, h_constraint, sizeof(float) * NUM_CONST, cudaMemcpyHostToDevice);
     
 
 #ifdef Linear
@@ -228,9 +230,13 @@ int main(int argc, char **argv)
             cudaDeviceSynchronize();
             CMA_check_symmetric<<<HORIZON,HORIZON>>>(device_cov, device_diag_eig);//device_covは強制的に対称行列に変換
             cudaDeviceSynchronize();
-
+#ifdef Pendulum
+            Using_Thrust_MCMPC_Pendulum<<<numBlocks, THREAD_PER_BLOCKS>>>(state[0], state[1], state[2], state[3], devStates, d_Input_vec, 
+            var, Blocks, device_cov, device_param, device_constraint, device_matrix, thrust::raw_pointer_cast( cost_device_vec_for_sorting.data() ));
+#else
             Using_Thrust_MCMPC_Linear<<<numBlocks, THREAD_PER_BLOCKS>>>(state[0],state[1],state[2],devStates, d_Input_vec, var, Blocks, device_cov, device_param, device_matrix, thrust::raw_pointer_cast( cost_device_vec_for_sorting.data() ));
             thrust::sequence( indices_device_vec.begin(), indices_device_vec.end() );
+#endif
             printf("loop====%d=======\n", repeat);
             thrust::sort_by_key( cost_device_vec_for_sorting.begin(), cost_device_vec_for_sorting.end(), indices_device_vec.begin() );
             callback_elite_sample<<<CMA_mu,1>>>(d_dataFromBlocks, d_Input_vec, thrust::raw_pointer_cast( indices_device_vec.data() ));
@@ -245,34 +251,7 @@ int main(int argc, char **argv)
             CMA_weighted_mean(h_dataFromBlocks, CMA_mu, Dy_host);
             cudaMemcpy(Dy_device, Dy_host, sizeof(float) * HORIZON, cudaMemcpyHostToDevice);
             mu_w = CMA_mu_weight( h_dataFromBlocks,  CMA_mu);//重みの２乗和の逆数を計算
-            // 分散共分散行列の平方根の逆行列を計算
-            // 1.分散共分散行列の平方根の計算
-            /*cudaMemcpy(h_hat_Q, d_hat_Q, sizeof(float)*dim_hat_Q, cudaMemcpyDeviceToHost);
-            cudaStat1 = cudaMemcpy(d_A, h_hat_Q, sizeof(float) * lda * m, cudaMemcpyHostToDevice);
-            assert(cudaSuccess == cudaStat1);
-            cusolver_status = cusolverDnSsyevd_bufferSize(cusolverH, jobz, uplo, m, d_A, lda, d_W, &lwork);
-            assert (cusolver_status == CUSOLVER_STATUS_SUCCESS);
-            cudaStat1 = cudaMalloc((void**)&d_work, sizeof(float)*lwork);
-            cusolver_status = cusolverDnSsyevd(cusolverH, jobz, uplo, m, d_A, lda, d_W, d_work, lwork, devInfo);
-            cudaDeviceSynchronize();
-            cudaStat1 = cudaMemcpy(eig_vec, d_W, sizeof(float)*m, cudaMemcpyDeviceToHost);
-            cudaStat2 = cudaMemcpy(Diag_D, d_A, sizeof(float)*lda*m, cudaMemcpyDeviceToHost);
-            cudaStat3 = cudaMemcpy(&info_gpu, devInfo, sizeof(int), cudaMemcpyDeviceToHost);
-            make_Diagonalization<<<HORIZON,HORIZON>>>(d_W, d_A);//対角行列の平方根の生成
-            cudaMemcpy(h_hat_Q, d_A, sizeof(float)*lda*m, cudaMemcpyDeviceToHost);//ホスト対角行列の生成
-            cudaMemcpy(device_diag_eig, h_hat_Q, sizeof(float)*dim_hat_Q, cudaMemcpyHostToDevice);//デバイス対角行列の生成
-            cudaMemcpy(device_cov, Diag_D, sizeof(float)*dim_hat_Q, cudaMemcpyHostToDevice);//直交行列の生成
-            tanspose<<<HORIZON,HORIZON>>>(d_A, device_cov);//直交行列をGPU演算用に変換
-            cudaDeviceSynchronize();
-            pwr_matrix_answerB<<<HORIZON,HORIZON>>>(d_A, device_diag_eig);// device_diag_eig = PD
-            cudaDeviceSynchronize();
-            // tanspose<<<HORIZON,HORIZON>>>(d_hat_Q, device_cov);//直交行列の転置を計算
-            pwr_matrix_answerA<<<HORIZON,HORIZON>>>(device_diag_eig, device_cov);// device_diag_eig = PDP^t
-            cudaDeviceSynchronize();
-            tanspose<<<HORIZON,HORIZON>>>(device_cov, device_diag_eig);//対称行列となっているかの判別に使用
-            cudaDeviceSynchronize();
-            CMA_check_symmetric<<<HORIZON,HORIZON>>>(device_cov, device_diag_eig);//device_covは強制的に対称行列に変換
-            cudaDeviceSynchronize();*/
+            
 
             //逆行列の計算
             cusolver_status = cusolverDnSpotrf_bufferSize(cusolverH, uplo, m, device_cov, m, &work_size);
@@ -342,8 +321,8 @@ int main(int argc, char **argv)
             cudaMemcpy(Us_device, Us_host, sizeof(float) * HORIZON, cudaMemcpyHostToDevice);
             
             //進化共分散の平方根の計算
-            fprintf(fp,"%f %f %f %f %f %f %f %f %f %f\n",Us_host[0], Us_host[1],
-                    Us_host[2], Us_host[3], Us_host[4], Us_host[5], Us_host[6], Us_host[7], Us_host[8], Us_host[9]);
+            /*fprintf(fp,"%f %f %f %f %f %f %f %f %f %f\n",Us_host[0], Us_host[1],
+                    Us_host[2], Us_host[3], Us_host[4], Us_host[5], Us_host[6], Us_host[7], Us_host[8], Us_host[9]);*/
 
             for(int count = 0; count < HORIZON; count++){
                 h_dataFromBlocks[0].Input[count] = Us_host[count];
@@ -364,6 +343,12 @@ int main(int argc, char **argv)
         }
         //printMatrix(m,m,h_hat_Q, lda, "C");
         now_u = Us_host[0];
+#ifdef Pendulum
+        // float ddx, ddtheta;
+        fprintf(fp,"%f %f %f %f %f %f %f\n", interval * time, now_u, state[0], state[1], state[2], state[3], h_dataFromBlocks[0].L );
+        Runge_kutta_45_for_Secondary_system(state, now_u, params, interval);
+        shift_Input_vec<<<numBlocks,THREAD_PER_BLOCKS>>>(d_Input_vec, Us_device);
+#else
         calc_Linear_example(state, now_u, params, state);
         for(int i = 0; i < CMA_mu; i++){
             for(int k = 0; k < HORIZON - 1; k++){
@@ -371,6 +356,7 @@ int main(int argc, char **argv)
             }
             h_dataFromBlocks[i].Input[HORIZON-1] = Us_host[HORIZON - 1];
         }
+#endif
     }
     if (d_A    ) cudaFree(d_A);
     if (d_W    ) cudaFree(d_W);

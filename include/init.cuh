@@ -9,3 +9,4 @@ void init_state(float *st);
 void init_Weight_matrix(float * matrix);
 
 void init_opt( float *opt );
+void init_constraint( float *constraint );

@@ -12,7 +12,7 @@ typedef struct{
 }Data1;
 
 typedef struct{
-    //float L;
+    float L;
     float W;
     float dy[HORIZON];
     float Input[HORIZON];

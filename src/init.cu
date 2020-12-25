@@ -8,32 +8,15 @@
 
 void Mat_sys_A(float *a)
 {
-    /*a[0] = 0.0f;
-    a[1] = -1.6658f;
-    a[2] = -11.9340f;
-    a[3] = 3.5377e-8;
-    a[4] = 0.0f;
-    a[5] = 43.0344f;
-    a[6] = 44.7524f;
-    a[7] = -9.1392e-5;
-
-    a[8] = 9.434f;
-    a[9] = -35.3774f;*/
-
-    /*a[0] = -1.0f;
-    a[1] = 1.0f;
-    a[2] = -1.0f;
-    a[3] = 1.0f;
-    a[4] = 0.0f;
-    a[5] = 3.0f;
-    a[6] = 1.0f;
-    a[7] = 0.0f;
-    a[8] = -1.0f;
-
-    a[9] = 1.0f;
-    a[10] = 2.0f;
-    a[11] = 1.0f;*/
-
+#ifdef Pendulum
+    a[0] = 0.1f;
+    a[1] = 0.024f;
+    a[2] = 0.2f;
+    a[3] = a[1] * powf(a[2],2) /3;
+    a[4] = 1.265f;
+    a[5] = 0.0000001;
+    a[6] = 9.81f;
+#else
     a[0] = 0.0f;
     a[1] = 1.0f;
     a[2] = 0.0f;
@@ -47,57 +30,41 @@ void Mat_sys_A(float *a)
     a[9] = 0.0f;
     a[10] = 0.0f;
     a[11] = 0.0893f;
+#endif
  }
 
 void init_state(float *st)
 {
-    // float st[8];
-    /*st[0] = 0.5; //cart_position
-    st[1] = 0.01; // Theta_1
-    st[2] = 0.01; // Theta_2
-    st[3] = 0.01; // Theta_3
-    st[4] = 0.0f; //cart_velocity
-    st[5] = 0.0f; // dTheta_1
-    st[6] = 0.0f; // dTheta_2
-    st[7] = 0.0f; // dTheta_3 */
-
-    /*st[0] = 0.0f;
-    st[1] = M_PI;
-    st[2] = 0.0f;
-    st[3] = 0.0f;*/
-
+#ifdef Pendulum
+    st[0] = 0.0f; //x
+    st[1] = M_PI; //theta
+    st[2] = 0.0f; //dx
+    st[3] = 0.0f; //dth
+#else
     st[0] = 2.98f;
     st[1] = 0.7f;
     st[3] = 0.0f;
+#endif
 }
 
 void init_Weight_matrix(float * matrix)
 {
-    /*matrix[0] = 1.0f;
-    matrix[1] = 0.0f;
-    matrix[2] = 0.0f;
-    matrix[3] = 0.0f;
+#ifdef Pendulum
+    matrix[0] = 1.75f;
+    matrix[1] = 1.75f;
+    matrix[2] = 0.04f;
+    matrix[3] = 0.05f;
     matrix[4] = 1.0f;
-
-    matrix[5] = 1.0f;*/
+#else
     matrix[0] = 2.0f;
     matrix[1] = 1.0f;
     matrix[2] = 0.1f;
     matrix[3] = 1.0f;
+#endif
 }
 
 void init_opt( float *opt )
 {
-    /*opt[0] = -3.6009f;
-    opt[1] = 1.0275f;
-    opt[2] = 4.1634f;
-    opt[3] = -2.7379f;
-    opt[4] = 1.1454f;
-    opt[5] = -0.2345f;
-    opt[6] = 0.00768f;
-    opt[7] = 0.1061f;
-    opt[8] = -0.05222f;
-    opt[9] = -0.0335f;*/
     opt[0] = -2.69f;
     opt[1] = 2.3787f;
     opt[2] = -2.0953f;
@@ -113,4 +80,12 @@ void init_opt( float *opt )
     opt[12] = -0.1778f;
     opt[13] = 0.0428f;
     opt[14] = 0.0027f;
+}
+
+void init_constraint( float *constraint )
+{
+    constraint[0] = -1.0f;
+    constraint[1] = 1.0f;
+    constraint[2] = -0.5f;
+    constraint[3] = 0.5f;
 }
