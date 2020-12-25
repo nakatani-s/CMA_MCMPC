@@ -213,15 +213,18 @@ __global__ void Using_Thrust_MCMPC_Linear(float x, float y, float w, curandState
     float z[HORIZON] = { };
     cost_vec[id] = 0.0f;
 
-    for(int t = 0; t < HORIZON; t++)
+    for(int t_x = 0; t_x < HORIZON; t_x++)
     {
-        //block_var = var;
-        for(int t_x = 0; t_x < HORIZON; t_x++)
-        {
             z[t_x] = gen_u(seq, devs, 0, 1.0f);
             //z[t_x] = gen_u(seq, devs, d_Datas[0].Input[t_x], var);
             seq += HORIZON;
-        }
+    }
+    __syncthreads();
+    for(int t = 0; t < HORIZON; t++)
+    {
+        //block_var = var;
+        __syncthreads();
+        //printf("id == %d -> z[%d]==%f\n",id, t, z[t]);
         u[t] = generate_u(t, d_Datas[0].Input[t] /*ここが影響している可能性*/, var, d_cov, z); //ここが影響している可能性
         if(isnan(u[t])){
             u[t] = d_Datas[0].Input[t];
@@ -252,9 +255,10 @@ __global__ void Using_Thrust_MCMPC_Linear(float x, float y, float w, curandState
     __syncthreads();
     d_Datas[id].W = KL_COST;
     //d_Datas[id].L = total_cost;
-    for(int z = 0; z < HORIZON; z++)
+    for(int index = 0; index < HORIZON; index++)
     {
-        d_Datas[id].Input[z] = u[z];
+        d_Datas[id].Input[index] = u[index];
+        d_Datas[id].dy[index] = z[index];
     }
     cost_vec[id] = total_cost;
     __syncthreads();
@@ -275,6 +279,7 @@ __global__ void callback_elite_sample(Data1 *d_Datas, Input_vec *dst, int *elite
     d_Datas[id].W =  dst[elite_indices[id]].W;
     for(int i = 0; i < HORIZON; i++){
         d_Datas[id].Input[i] = dst[elite_indices[id]].Input[i];
+        d_Datas[id].dy[i] = dst[elite_indices[id]].dy[i];
     }
 }
 

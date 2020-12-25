@@ -54,6 +54,7 @@ void CMA_evolutional_path_Ps(float *out, float *inv_C, float *dy, float mu, cons
         constatnt = sqrtf(c_s*(2-c_s)*mu);
     }
     for(int index = 0; index < HORIZON; index++){
+        mat_index = index * HORIZON;
         for(int columun = 0; columun < HORIZON; columun++){
             if(isnan(inv_C[mat_index+columun] + dy[columun])){
                 temp[index] += 0.0f;
@@ -62,6 +63,7 @@ void CMA_evolutional_path_Ps(float *out, float *inv_C, float *dy, float mu, cons
             }
         }
         out[index] = (1 - c_s) * out[index] + constatnt * temp[index];
+        //printf("Cc == %f  const == %f  temp[%d] == %f\n", (1 - c_s), constatnt, index,temp[index]);
     }
 }
 
@@ -165,6 +167,23 @@ __global__ void CMA_zeros_matrix(float *Mat)
     Mat[id] = 0.0f;
 }
 
+float CMA_mat_weight(Data1 *vec_P, const int Num, int No)
+{
+    float ret = 0.0f;
+    float total_here = 0.0f;
+    for(int i = 0; i < Num; i++){
+        if(isnan(vec_P[i].W))
+        {
+            total_here += 0.0f;
+        }else{
+            total_here += vec_P[i].W;
+        }
+    }
+    ret = vec_P[No].W / total_here;
+    return ret;
+}
+
+
 __global__ void CMA_matrix_sum(float *out, float *tensor, float *prev_cma, Input_vec *vector_P, const int el, int No)
 {
     unsigned int id = threadIdx.x + blockDim.x * blockIdx.x;
@@ -179,10 +198,16 @@ __global__ void CMA_matrix_sum(float *out, float *tensor, float *prev_cma, Input
     }
     float here_w;
     here_w = vector_P[No].W / weight_here;
+    __syncthreads();
 
     out[id] += here_w * (tensor[id] - prev_cma[id]);
 }
 
+__global__ void CMA_matrix_sum_renew(float *out, float *tensor, float *prev_cma, float weight)
+{
+    unsigned int id = threadIdx.x + blockDim.x * blockIdx.x;
+    out[id] += weight * (tensor[id] - prev_cma[id]);
+}
 __global__ void CMA_matrix_Difference(float *out, float *left, float *right)
 {
     unsigned int id = threadIdx.x + blockDim.x * blockIdx.x;
@@ -192,7 +217,7 @@ __global__ void CMA_matrix_Difference(float *out, float *left, float *right)
 __global__ void CMA_update_covariance_matrix(float *out, float *third, float *second, float c1, float c_mu)
 {
     unsigned int id = threadIdx.x + blockDim.x * blockIdx.x;
-    out[id] = c1 * second[id] +  c_mu * third[id];
+    out[id] = out[id] + c1 * second[id] +  c_mu * third[id];
 }
 
 void CMA_estimate_mean(float *Us_hst, float *Dy_hst, float var)

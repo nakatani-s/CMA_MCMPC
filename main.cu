@@ -72,10 +72,10 @@ int main(int argc, char **argv)
 
 
     /* GPUの設定 */
-    unsigned int numBlocks, /*randomBlocks,*/ randomNums/*, minId_cpu*/;
+    unsigned int numBlocks, randomBlocks, randomNums/*, minId_cpu*/;
     int Blocks;
     randomNums = N_OF_SAMPLES * (dim_U+1) * HORIZON;
-    //randomBlocks = countBlocks(randomNums, THREAD_PER_BLOCKS);
+    randomBlocks = countBlocks(randomNums, THREAD_PER_BLOCKS);
     numBlocks = countBlocks(N_OF_SAMPLES, THREAD_PER_BLOCKS);
     printf("#NumBlocks = %d\n", numBlocks);
     Blocks = numBlocks;
@@ -86,10 +86,13 @@ int main(int argc, char **argv)
 
 #ifdef USING_THRUST
     float mu_w = 0.0f;
-    thrust::device_vector<int> indices_device_vec( N_OF_SAMPLES );
+    //size_t N_S = N_OF_SAMPLES;
+    thrust::host_vector<int> indices_host_vec( N_OF_SAMPLES );
+    thrust::device_vector<int> indices_device_vec = indices_host_vec;
     //thrust::device_vector<int> indices_vec_dev_temp( N_OF_SAMPLES );
     //indices_device_vec = indices_vec_dev_temp;
-    thrust::device_vector<float> cost_device_vec_for_sorting( N_OF_SAMPLES );
+    thrust::host_vector<float> cost_host_vec_for_sorting( N_OF_SAMPLES );
+    thrust::device_vector<float> cost_device_vec_for_sorting = cost_host_vec_for_sorting;
     //thrust::device_vector<float> cost_vec_dev_temp( N_OF_SAMPLES );
     //cost_device_vec_for_sorting = cost_vec_dev_temp;
     
@@ -115,7 +118,7 @@ int main(int argc, char **argv)
     /* curand の設定 */
     curandState *devStates;
     cudaMalloc((void **)&devStates, randomNums * sizeof(curandState));
-    setup_kernel<<<N_OF_SAMPLES * (dim_U+1), HORIZON>>>(devStates,rand());
+    setup_kernel<<<randomBlocks, THREAD_PER_BLOCKS>>>(devStates,rand());
     cudaDeviceSynchronize();
 
     /* Covariance の定義 */
@@ -152,7 +155,7 @@ int main(int argc, char **argv)
 
     float var, before_var;
     float now_u;
-    for(int i = 0; i < Blocks; i++){
+    for(int i = 0; i < CMA_mu; i++){
         for(int k = 0; k < HORIZON; k++){
             h_dataFromBlocks[i].Input[k] = 0.0f;
         }
@@ -187,32 +190,16 @@ int main(int argc, char **argv)
     cublasFillMode_t uplo = CUBLAS_FILL_MODE_LOWER;
 
 
-
+    float weight_denominator = 0.0f; 
     for(int time = 0; time < TIME; time++){
         var = Variavility;
         for(int repeat = 0; repeat < Recalc; repeat++){
             // var = Variavility * pow(0.8,repeat);
             //var = Variavility;
-            cudaMemcpy(d_dataFromBlocks, h_dataFromBlocks, sizeof(Data1)*numBlocks, cudaMemcpyHostToDevice);
+            cudaMemcpy(d_dataFromBlocks, h_dataFromBlocks, sizeof(Data1)* CMA_mu, cudaMemcpyHostToDevice);
             cudaDeviceSynchronize();
             // MCMPC_GPU<<<numBlocks, THREAD_PER_BLOCKS>>>(state, devStates, d_dataFromBlocks, var, Blocks, d_hat_Q);
 #ifdef USING_THRUST
-            Using_Thrust_MCMPC_Linear<<<numBlocks, THREAD_PER_BLOCKS>>>(state[0],state[1],state[2],devStates, d_Input_vec, var, Blocks, d_hat_Q, device_param, device_matrix, thrust::raw_pointer_cast( cost_device_vec_for_sorting.data() ));
-            thrust::sequence( indices_device_vec.begin(), indices_device_vec.end() );
-            thrust::sort_by_key( cost_device_vec_for_sorting.begin(), cost_device_vec_for_sorting.end(), indices_device_vec.begin() );
-            callback_elite_sample<<<CMA_mu,1>>>(d_dataFromBlocks, d_Input_vec, thrust::raw_pointer_cast( indices_device_vec.data() ));
-#else
-            MCMPC_GPU_Linear_Example<<<numBlocks, THREAD_PER_BLOCKS>>>(state[0],state[1],state[2], devStates, d_dataFromBlocks, var, Blocks, d_hat_Q, device_param, device_matrix);
-            cudaDeviceSynchronize();
-            //cudaMemcpy(h_dataFromBlocks, d_dataFromBlocks, sizeof(Data1) * numBlocks, cudaMemcpyDeviceToHost);
-#endif
-            cudaMemcpy(h_dataFromBlocks, d_dataFromBlocks, sizeof(Data1) * numBlocks, cudaMemcpyDeviceToHost);
-            printf("TOP  W == %f WORST W == %f\n",h_dataFromBlocks[0].W,  h_dataFromBlocks[Blocks-1].W);
-            //weighted_mean(h_dataFromBlocks, Blocks, Us_host);
-            CMA_weighted_mean(h_dataFromBlocks, CMA_mu, Dy_host);
-            cudaMemcpy(Dy_device, Dy_host, sizeof(float) * HORIZON, cudaMemcpyHostToDevice);
-            mu_w = CMA_mu_weight( h_dataFromBlocks,  CMA_mu);//重みの２乗和の逆数を計算
-
             // 分散共分散行列の平方根の逆行列を計算
             // 1.分散共分散行列の平方根の計算
             cudaMemcpy(h_hat_Q, d_hat_Q, sizeof(float)*dim_hat_Q, cudaMemcpyDeviceToHost);
@@ -242,6 +229,51 @@ int main(int argc, char **argv)
             CMA_check_symmetric<<<HORIZON,HORIZON>>>(device_cov, device_diag_eig);//device_covは強制的に対称行列に変換
             cudaDeviceSynchronize();
 
+            Using_Thrust_MCMPC_Linear<<<numBlocks, THREAD_PER_BLOCKS>>>(state[0],state[1],state[2],devStates, d_Input_vec, var, Blocks, device_cov, device_param, device_matrix, thrust::raw_pointer_cast( cost_device_vec_for_sorting.data() ));
+            thrust::sequence( indices_device_vec.begin(), indices_device_vec.end() );
+            printf("loop====%d=======\n", repeat);
+            thrust::sort_by_key( cost_device_vec_for_sorting.begin(), cost_device_vec_for_sorting.end(), indices_device_vec.begin() );
+            callback_elite_sample<<<CMA_mu,1>>>(d_dataFromBlocks, d_Input_vec, thrust::raw_pointer_cast( indices_device_vec.data() ));
+#else
+            MCMPC_GPU_Linear_Example<<<numBlocks, THREAD_PER_BLOCKS>>>(state[0],state[1],state[2], devStates, d_dataFromBlocks, var, Blocks, d_hat_Q, device_param, device_matrix);
+            cudaDeviceSynchronize();
+            //cudaMemcpy(h_dataFromBlocks, d_dataFromBlocks, sizeof(Data1) * numBlocks, cudaMemcpyDeviceToHost);
+#endif
+            cudaMemcpy(h_dataFromBlocks, d_dataFromBlocks, sizeof(Data1) * CMA_mu, cudaMemcpyDeviceToHost);
+            printf("TOP  W == %f WORST W == %f\n",h_dataFromBlocks[0].W,  h_dataFromBlocks[CMA_mu-1].W);
+            //weighted_mean(h_dataFromBlocks, Blocks, Us_host);
+            CMA_weighted_mean(h_dataFromBlocks, CMA_mu, Dy_host);
+            cudaMemcpy(Dy_device, Dy_host, sizeof(float) * HORIZON, cudaMemcpyHostToDevice);
+            mu_w = CMA_mu_weight( h_dataFromBlocks,  CMA_mu);//重みの２乗和の逆数を計算
+            // 分散共分散行列の平方根の逆行列を計算
+            // 1.分散共分散行列の平方根の計算
+            /*cudaMemcpy(h_hat_Q, d_hat_Q, sizeof(float)*dim_hat_Q, cudaMemcpyDeviceToHost);
+            cudaStat1 = cudaMemcpy(d_A, h_hat_Q, sizeof(float) * lda * m, cudaMemcpyHostToDevice);
+            assert(cudaSuccess == cudaStat1);
+            cusolver_status = cusolverDnSsyevd_bufferSize(cusolverH, jobz, uplo, m, d_A, lda, d_W, &lwork);
+            assert (cusolver_status == CUSOLVER_STATUS_SUCCESS);
+            cudaStat1 = cudaMalloc((void**)&d_work, sizeof(float)*lwork);
+            cusolver_status = cusolverDnSsyevd(cusolverH, jobz, uplo, m, d_A, lda, d_W, d_work, lwork, devInfo);
+            cudaDeviceSynchronize();
+            cudaStat1 = cudaMemcpy(eig_vec, d_W, sizeof(float)*m, cudaMemcpyDeviceToHost);
+            cudaStat2 = cudaMemcpy(Diag_D, d_A, sizeof(float)*lda*m, cudaMemcpyDeviceToHost);
+            cudaStat3 = cudaMemcpy(&info_gpu, devInfo, sizeof(int), cudaMemcpyDeviceToHost);
+            make_Diagonalization<<<HORIZON,HORIZON>>>(d_W, d_A);//対角行列の平方根の生成
+            cudaMemcpy(h_hat_Q, d_A, sizeof(float)*lda*m, cudaMemcpyDeviceToHost);//ホスト対角行列の生成
+            cudaMemcpy(device_diag_eig, h_hat_Q, sizeof(float)*dim_hat_Q, cudaMemcpyHostToDevice);//デバイス対角行列の生成
+            cudaMemcpy(device_cov, Diag_D, sizeof(float)*dim_hat_Q, cudaMemcpyHostToDevice);//直交行列の生成
+            tanspose<<<HORIZON,HORIZON>>>(d_A, device_cov);//直交行列をGPU演算用に変換
+            cudaDeviceSynchronize();
+            pwr_matrix_answerB<<<HORIZON,HORIZON>>>(d_A, device_diag_eig);// device_diag_eig = PD
+            cudaDeviceSynchronize();
+            // tanspose<<<HORIZON,HORIZON>>>(d_hat_Q, device_cov);//直交行列の転置を計算
+            pwr_matrix_answerA<<<HORIZON,HORIZON>>>(device_diag_eig, device_cov);// device_diag_eig = PDP^t
+            cudaDeviceSynchronize();
+            tanspose<<<HORIZON,HORIZON>>>(device_cov, device_diag_eig);//対称行列となっているかの判別に使用
+            cudaDeviceSynchronize();
+            CMA_check_symmetric<<<HORIZON,HORIZON>>>(device_cov, device_diag_eig);//device_covは強制的に対称行列に変換
+            cudaDeviceSynchronize();*/
+
             //逆行列の計算
             cusolver_status = cusolverDnSpotrf_bufferSize(cusolverH, uplo, m, device_cov, m, &work_size);
             assert( cusolver_status == CUSOLVER_STATUS_SUCCESS );
@@ -253,18 +285,24 @@ int main(int argc, char **argv)
             cusolver_status = cusolverDnSpotrs(cusolverH, uplo, m, m , device_cov, m, device_diag_eig, m, devInfo);//device_diag_eigに逆行列を返す
             assert( cusolver_status == CUSOLVER_STATUS_SUCCESS );
             cudaMemcpy(Diag_D, device_diag_eig, sizeof(float)*lda*m, cudaMemcpyDeviceToHost);//Diag_Dにコピー
-
+            //printMatrix(m,m,Diag_D, lda, "C");
             //進化パス１の計算
+            //このあたりが怪しい
             CMA_evolutional_path_Ps( Ps_host, Diag_D, Dy_host, mu_w, c_sigma); //進化パスP_sigma -> Ps_hostを計算
+            //printMatrix(m,1,Ps_host, lda, "C");
+            //printMatrix(m,1,Dy_host, lda, "Dy");
             before_var = var;
             var = CMA_update_variance( Ps_host, c_sigma, d_sigma, Xi, var);//進化分散を計算
-
+            printf("before == %f, after == %f", before_var, var);
             //rank-u-updateの分散共分散行列(d_A)の計算
             CMA_zeros_matrix<<<HORIZON,HORIZON>>>(d_A);//d_Aを0行列に変換
+            cudaDeviceSynchronize();
             for(int elite = 0; elite < CMA_mu; elite++){
                 CMA_path_sigma_tensor<<<HORIZON,HORIZON>>>(device_cov, d_Input_vec, elite);//device_cov <- OP(y_i)
                 cudaDeviceSynchronize();
-                CMA_matrix_sum<<<HORIZON, HORIZON>>>(d_A, device_cov,d_hat_Q, d_Input_vec, CMA_mu, elite);
+                weight_denominator = CMA_mat_weight(h_dataFromBlocks, CMA_mu, elite);
+                //CMA_matrix_sum<<<HORIZON, HORIZON>>>(d_A, device_cov,d_hat_Q, d_Input_vec, CMA_mu, elite);
+                CMA_matrix_sum_renew<<<HORIZON,HORIZON>>>(d_A, device_cov, d_hat_Q, weight_denominator);
                 cudaDeviceSynchronize();
             }
             tanspose<<<HORIZON,HORIZON>>>(device_cov, d_A);//対称行列となっているかの判別に使用
@@ -275,9 +313,12 @@ int main(int argc, char **argv)
             //rank-one-updateの分散共分散行列の計算
             //進化パス２の計算
             CMA_evolutional_path_Pc( Pc_host, Dy_host, mu_w, c_sigma);
-
+            //cudaMemcpy(h_hat_Q, d_A, sizeof(float)*lda*m, cudaMemcpyDeviceToHost);
+            //printMatrix(m,m,h_hat_Q, lda, "0_mat");
+            //printMatrix(m,1,Pc_host, lda, "0_mat");
             //rank-one-updateの分散共分散行列(device_diag_eig)の計算
-            CMA_path_pc_tensor<<<HORIZON,HORIZON>>>(device_cov, Pc_host);
+            cudaMemcpy(Pc_device, Pc_host, sizeof(float)*HORIZON, cudaMemcpyHostToDevice);
+            CMA_path_pc_tensor<<<HORIZON,HORIZON>>>(device_cov, Pc_device);
             cudaDeviceSynchronize();
             CMA_matrix_Difference<<<HORIZON, HORIZON>>>(device_diag_eig, device_cov,d_hat_Q);
             cudaDeviceSynchronize();
@@ -287,64 +328,20 @@ int main(int argc, char **argv)
             cudaDeviceSynchronize();
 
             //進化共分散行列の計算
-            CMA_update_covariance_matrix<<<HORIZON,HORIZON>>>(d_hat_Q, d_A, device_diag_eig, 0.2, 0.8); //c1 = 0.2 c_mu = 0.8に対応
+            CMA_update_covariance_matrix<<<HORIZON,HORIZON>>>(d_hat_Q, d_A, device_diag_eig, 0.01, 0.99); //c1 = 0.2 c_mu = 0.8に対応
             cudaDeviceSynchronize();
             tanspose<<<HORIZON,HORIZON>>>(device_cov, d_hat_Q);//対称行列となっているかの判別に使用
             cudaDeviceSynchronize();
             CMA_check_symmetric<<<HORIZON,HORIZON>>>(d_hat_Q, device_cov);//d_hat_Qを強制的に対称行列に変換
             cudaDeviceSynchronize();
+            //cudaMemcpy(h_hat_Q, d_hat_Q, sizeof(float)*dim_hat_Q, cudaMemcpyDeviceToHost);
+            //printMatrix(m,m,h_hat_Q, lda, "C");
 
             //推定解の計算
             CMA_estimate_mean(Us_host, Dy_host, before_var);
             cudaMemcpy(Us_device, Us_host, sizeof(float) * HORIZON, cudaMemcpyHostToDevice);
             
-            //printf("hoge\n");
-            /*calc_Var_Cov_matrix<<<HORIZON, HORIZON>>>(device_cov, d_dataFromBlocks, Us_device, Blocks);
-            cudaDeviceSynchronize();
-            cudaMemcpy(h_hat_Q, device_cov, sizeof(float)*dim_hat_Q, cudaMemcpyDeviceToHost);
-            printMatrix(m,m,h_hat_Q, lda, "DA");
-            
-            //cudaStat1 = cudaMemcpy(d_A, h_hat_Q, sizeof(float) * lda * m, cudaMemcpyHostToDevice);
-            cudaStat1 = cudaMemcpy(d_A, h_hat_Q, sizeof(float) * lda * m, cudaMemcpyHostToDevice);
-            assert(cudaSuccess == cudaStat1);
-            cusolver_status = cusolverDnSsyevd_bufferSize( cusolverH, jobz, uplo, m, d_A, lda, d_W, &lwork);
-            assert (cusolver_status == CUSOLVER_STATUS_SUCCESS);
-            //cudaMemcpy(Diag_D, d_A, sizeof(float)*lda*m, cudaMemcpyDeviceToHost);
-            //printMatrix(m,m,Diag_D, m, "V");
-            
-
-            cudaStat1 = cudaMalloc((void**)&d_work, sizeof(float)*lwork);
-            //assert(cudaSuccess == cudaStat1);
-
-            cusolver_status = cusolverDnSsyevd( cusolverH, jobz, uplo, m, d_A, lda, d_W, d_work, lwork, devInfo);
-            cudaDeviceSynchronize();
-            //assert(CUSOLVER_STATUS_SUCCESS == cusolver_status);
-            //assert(cudaSuccess == cudaStat1);
-
-            cudaStat1 = cudaMemcpy(eig_vec, d_W, sizeof(float)*m, cudaMemcpyDeviceToHost);
-            cudaStat2 = cudaMemcpy(Diag_D, d_A, sizeof(float)*lda*m, cudaMemcpyDeviceToHost);
-            cudaStat3 = cudaMemcpy(&info_gpu, devInfo, sizeof(int), cudaMemcpyDeviceToHost);
-           
-
-            make_Diagonalization<<<HORIZON,HORIZON>>>(d_W, d_A);
-            cudaMemcpy(h_hat_Q, d_A, sizeof(float)*lda*m, cudaMemcpyDeviceToHost);
-            //printMatrix(m,m,h_hat_Q, lda, "C");
-            cudaMemcpy(device_diag_eig, h_hat_Q, sizeof(float)*dim_hat_Q, cudaMemcpyHostToDevice);
-            cudaMemcpy(device_cov, Diag_D, sizeof(float)*dim_hat_Q, cudaMemcpyHostToDevice);
-            pwr_matrix_answerB<<<HORIZON,HORIZON>>>(device_cov, device_diag_eig);
-            cudaDeviceSynchronize();
-
-            tanspose<<<HORIZON,HORIZON>>>(d_hat_Q, device_cov);
-            // pwr_matrix_answerA<<<HORIZON,HORIZON>>>(device_diag_eig, device_cov);
-            pwr_matrix_answerA<<<HORIZON,HORIZON>>>(device_diag_eig, d_hat_Q);
-            cudaDeviceSynchronize();
-            tanspose<<<HORIZON,HORIZON>>>(d_hat_Q, device_diag_eig);
-            //cudaMemcpy(h_hat_Q, device_diag_eig, sizeof(float)*dim_hat_Q, cudaMemcpyDeviceToHost);
-            cudaMemcpy(h_hat_Q, d_hat_Q, sizeof(float)*dim_hat_Q, cudaMemcpyDeviceToHost);
-            //cudaMemcpy(d_hat_Q, h_hat_Q, sizeof(float)*dim_hat_Q, cudaMemcpyHostToDevice);
-            //printMatrix(m,m,h_hat_Q, lda, "C");*/
-            cudaMemcpy(h_hat_Q, d_hat_Q, sizeof(float)*dim_hat_Q, cudaMemcpyDeviceToHost);
-            printMatrix(m,m,h_hat_Q, lda, "C");
+            //進化共分散の平方根の計算
             fprintf(fp,"%f %f %f %f %f %f %f %f %f %f\n",Us_host[0], Us_host[1],
                     Us_host[2], Us_host[3], Us_host[4], Us_host[5], Us_host[6], Us_host[7], Us_host[8], Us_host[9]);
 
@@ -368,7 +365,7 @@ int main(int argc, char **argv)
         //printMatrix(m,m,h_hat_Q, lda, "C");
         now_u = Us_host[0];
         calc_Linear_example(state, now_u, params, state);
-        for(int i = 0; i < Blocks; i++){
+        for(int i = 0; i < CMA_mu; i++){
             for(int k = 0; k < HORIZON - 1; k++){
                 h_dataFromBlocks[i].Input[k] = Us_host[k+1];
             }

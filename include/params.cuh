@@ -16,19 +16,20 @@ define parameters for MCMPC and Systems
 #define dim_weight_matrix 4
 #define NUM_CONST 4
 #define interval 0.01
-#define Variavility 3.0
+#define Variavility 2.0
 
-#define Recalc 20
+#define Recalc 100
 #define N_OF_SAMPLES 3000
 #define THREAD_PER_BLOCKS 100
 #define HORIZON 15
 
 const int dim_hat_Q = HORIZON * HORIZON;
 
-const int CMA_mu = 9;
-const int c_sigma = 0.21;
-const int d_sigma = 5.76;
-const int Xi = 3.81;
+const int CMA_mu = 100;
+const float c_sigma = 0.21f;
+//#define c_sigma 0.21
+const float d_sigma = 5.76f;
+const float Xi = 3.81f;
 
 #define USING_THRUST
 
